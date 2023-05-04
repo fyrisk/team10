@@ -4,6 +4,7 @@
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QMessageBox>
+#include <QFileDialog>
 #include <QLabel>
 #include <QDebug>
 
@@ -26,7 +27,6 @@ GameWidget::GameWidget(QWidget *parent)
         newGame->setGeometry(QRect(10, 150, 100, 50));
         QPushButton *reStart = new QPushButton("New Boardsize", this);
         reStart->setGeometry(QRect(10, 210, 120, 50));
-
     //连接
         connect(beginButton, &QPushButton::clicked, this, &GameWidget::onSizeButton9Clicked);
         connect(sizeButton11, &QPushButton::clicked, this, &GameWidget::onSizeButton11Clicked);
@@ -35,12 +35,12 @@ GameWidget::GameWidget(QWidget *parent)
         connect(reStart, &QPushButton::clicked, this, &GameWidget::restartGame);
 }
 
-GameWidget::~GameWidget()//析构函数
+GameWidget::~GameWidget()
 {
 delete ui;
 }
 
-void GameWidget::initWidget()//打开围棋界面，在onSizeButtonxClicked()中被调用
+void GameWidget::initWidget()
 {
 
   QHBoxLayout *mainLayout = nullptr;
@@ -61,33 +61,35 @@ void GameWidget::initWidget()//打开围棋界面，在onSizeButtonxClicked()中
 }
 
 
-void GameWidget::newGame()//在当前棋盘大小下重新开始游戏
+void GameWidget::newGame()
 {
  if (boardWidget!=nullptr) {  boardWidget->newGame();}
 }
-void GameWidget::onSizeButton9Clicked()//打开9*9棋盘
-{
-    if(!boardWidget){
-    boardSize=9;
-   initWidget();}
-}
-void GameWidget::onSizeButton11Clicked()//打开11*11棋盘
+void GameWidget::onSizeButton11Clicked()
 {
     if(!boardWidget){
     boardSize=11;
    initWidget();}
 }
-void GameWidget::onSizeButton13Clicked()//打开13*13棋盘
+
+void GameWidget::onSizeButton9Clicked()
+{
+    if(!boardWidget){
+    boardSize=9;
+   initWidget();}
+}
+
+void GameWidget::onSizeButton13Clicked()
 {
     if(!boardWidget){
     boardSize=13;
    initWidget();}
 }
-void GameWidget::restartGame()//不同于newGame函数，此函数可重新选择新的棋盘大小
+void GameWidget::restartGame()
 {
+    boardWidget->newGame();
     if (boardWidget)
        {
-        boardWidget->newGame();
         boardWidget->hide();
 
         // 删除旧的 boardWidget
@@ -95,11 +97,5 @@ void GameWidget::restartGame()//不同于newGame函数，此函数可重新选�
         boardWidget=nullptr;//（没有的话会在点newboardsize后再点newgame时报错）
        }
 }
-
-
-
-
-
-
 
 
