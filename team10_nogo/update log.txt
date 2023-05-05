@@ -1,0 +1,12 @@
+4-3 update
+基于不围棋的胜负逻辑对boardwidget.h/cpp进行修改
+添加了以下方法：
+1. hasLiberties：检查指定棋子是否有气
+2. capturesOpponent：检查落子后是否吃掉了对方的棋子
+3. captureStones：吃掉对方的棋子
+4. gameOver：游戏结束，显示输家信息并开始新游戏
+
+修改了 downPiece 方法，以便在落子时检查自杀行为和吃子行为。当落子导致吃子时，游戏判定为负方。当落子导致自杀行为时，游戏判定为负方
+
+4-6 update
+1. isSuicidalMove：检查落子是否为自杀行为（导致己方棋子没气）
