@@ -53,6 +53,7 @@ public slots:
     void initTime();
     void onTimeTimeout();
     void onChangeTimeButtonClicked();
+    void onGiveUpButtonClicked();
     void setTrackPos(const QPoint &value);//设置当前鼠标所在棋盘中的位置
 
     //游戏胜负判断(public slots)
@@ -92,7 +93,19 @@ private:
     QStack<QPoint> dropedPieces;                //每一步落子位置
     QTimer *timer;
     QLabel *timeLabel;
+    QLabel *whiteStepLabel;  // 白方步数
+    QLabel *blackStepLabel;  // 黑方步数
+    QLabel *totalStepLabel;  // 总步数
     int remainingTime;//计时用：显示时间 fy
+    int whiteStepCount;
+    int blackStepCount;
+    int whiteThinkingTime;
+    int blackThinkingTime;
+    int originTime;
+    int flag;//判断有无投降
+    double whiteAvgThinkingTime;
+    double blackAvgThinkingTime;
+    double TotalTime;
 };
 
 #endif // BOARDWIDGET_H

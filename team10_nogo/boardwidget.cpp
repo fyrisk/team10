@@ -28,8 +28,28 @@ BoardWidget::BoardWidget(int boardSize,QWidget *parent) :
 
     //修改倒计时时间按钮
     QPushButton *ChangeTimeButton = new QPushButton("Change Time", this);
-    ChangeTimeButton -> setGeometry(QRect(330, 70, 100, 30));
+    ChangeTimeButton -> setGeometry(QRect(340, 50, 90, 30));
     connect(ChangeTimeButton, &QPushButton::clicked, this, &BoardWidget::onChangeTimeButtonClicked);
+
+    //设置投降按钮
+    QPushButton *giveUpButton = new QPushButton("Give up", this);
+    giveUpButton->setGeometry(QRect(340, 80, 90, 30));
+    connect(giveUpButton, &QPushButton::clicked, this, &BoardWidget::onGiveUpButtonClicked);
+
+    // 白方步数
+    whiteStepLabel = new QLabel("白方：0步", this);
+    whiteStepLabel->setGeometry(QRect(330, 130, 100, 20));
+    whiteStepLabel->setAlignment(Qt::AlignHCenter);
+
+    // 黑方步数
+    blackStepLabel = new QLabel("黑方：0步", this);
+    blackStepLabel->setGeometry(QRect(330, 160, 100, 20));
+    blackStepLabel->setAlignment(Qt::AlignHCenter);
+
+    // 总步数
+    totalStepLabel = new QLabel("总步数：0步", this);
+    totalStepLabel->setGeometry(QRect(330, 190, 100, 20));
+    totalStepLabel->setAlignment(Qt::AlignHCenter);
 
     //初始化计时器和棋盘
     initTime();//initBoard用到了initTime初始化的timer指针，二者顺序不可交换
@@ -189,6 +209,16 @@ Board BoardWidget::getBoard()
 
 void BoardWidget::switchNextPlayer()
 {
+    if (nextPlayer == WHITE_PLAYER) {
+            whiteStepCount++;
+            whiteStepLabel->setText(QString("白方：%1步").arg(whiteStepCount));
+            whiteThinkingTime += originTime-remainingTime;
+        } else {
+            blackStepCount++;
+            blackStepLabel->setText(QString("黑方：%1步").arg(blackStepCount));
+            blackThinkingTime += originTime-remainingTime;
+        }
+    totalStepLabel->setText(QString("总步数：%1步").arg(blackStepCount+whiteStepCount));
     nextPlayer = !nextPlayer;
     emit turnNextPlayer(nextPlayer);
 }
@@ -209,7 +239,15 @@ void BoardWidget::newGame()
     if (timer) {
         timer->start();
     }
-
+    flag=0;
+    whiteThinkingTime=0;
+    blackThinkingTime=0;
+    whiteStepCount=0;
+    blackStepCount=0;
+    originTime=60;
+    whiteStepLabel->setText(QString("白方：%1步").arg(whiteStepCount));
+    blackStepLabel->setText(QString("黑方：%1步").arg(blackStepCount));
+    totalStepLabel->setText(QString("总步数：%1步").arg(blackStepCount+whiteStepCount));
     update();
     update();
     emit turnNextPlayer(nextPlayer);
@@ -221,7 +259,7 @@ void BoardWidget::initTime()//初始化时间
 
         // 初始化 QLabel 控件
         timeLabel = new QLabel(this);
-        timeLabel->setGeometry(QRect(340, 20, 100, 30));
+        timeLabel->setGeometry(QRect(360, 20, 100, 30));
         timeLabel->setText(QString("Time: %1 s").arg(remainingTime));
 
         // 初始化 QTimer
@@ -243,8 +281,16 @@ void BoardWidget::onTimerTimeout()//不是定时60s后执行，而是每秒执�
     // 检查剩余时间是否已用完
     if (remainingTime <= 0) {
         timer->stop();
-        // 通知玩家时间已用完，还没加判负功能
         QMessageBox::information(this, "Time out", "Time is up!");
+        flag=1;
+        if (nextPlayer == WHITE_PLAYER)
+        {
+            gameOver(WHITE_PLAYER);
+        }
+        else
+        {
+            gameOver(BLACK_PLAYER);
+        }
     }
 }
 
@@ -265,10 +311,25 @@ void BoardWidget::onChangeTimeButtonClicked()//更改时间，点击后可输入
     if (yes)
     {
         SET_TIME = newTime;
+        originTime=SET_TIME;
         remainingTime=SET_TIME;//更新时间
     }
     timer->start();
 }
+
+void BoardWidget::onGiveUpButtonClicked()
+{
+    flag=1;
+    if (nextPlayer == WHITE_PLAYER)
+    {
+        gameOver(WHITE_PLAYER);
+    }
+    else
+    {
+        gameOver(BLACK_PLAYER);
+    }
+}
+
 void BoardWidget::downPiece(int x, int y)
 {
     if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT && board[x][y] == NO_PIECE)
@@ -398,7 +459,28 @@ void BoardWidget::initVisited()
 void BoardWidget::gameOver(int loser)//游戏结束，显示输家信息并开始新游戏
 {
 timer->stop();
-QString loserStr = (loser == WHITE_PLAYER) ? "White" : "Black";
-QMessageBox::information(this, "Game Over", loserStr + " player loses!");
-newGame();
+QString loserStr = (loser == WHITE_PLAYER) ? "白方" : "黑方";
+if(loser==WHITE_PLAYER&&flag==0){
+    whiteStepCount++;
+    whiteStepLabel->setText(QString("白方：%1步").arg(whiteStepCount));
+}else if(loser==BLACK_PLAYER&&flag==0){
+    blackStepCount++;
+    blackStepLabel->setText(QString("黑方：%1步").arg(blackStepCount));
+}
+whiteAvgThinkingTime = (whiteStepCount > 0) ? ((double) whiteThinkingTime / whiteStepCount) : 0;
+blackAvgThinkingTime = (blackStepCount > 0) ? ((double) blackThinkingTime / blackStepCount) : 0;
+TotalTime=whiteThinkingTime+blackThinkingTime;
+totalStepLabel->setText(QString("总步数：%1步").arg(blackStepCount+whiteStepCount));
+    // 显示结算信息
+    QMessageBox::information(this, "游戏结束",
+                              QString("%1惜败!\n\n"
+                                      "总步数: 白方 %2, 黑方 %3\n"
+                                      "总时间：%6s\n"
+                                      "平均思考时间: 白方 %4s, 黑方 %5s")
+                                      .arg(loserStr)
+                                      .arg(whiteStepCount)
+                                      .arg(blackStepCount)
+                                      .arg(whiteAvgThinkingTime,0,'f',2)
+                                      .arg(blackAvgThinkingTime,0,'f',2)
+                                      .arg(TotalTime,0,'f',2));
 }
