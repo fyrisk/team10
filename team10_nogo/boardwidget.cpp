@@ -1,9 +1,4 @@
 #include "boardwidget.h"
-#include <QPainter>
-#include <QMouseEvent>
-#include <QFile>
-#include <QDataStream>
-#include <QMessageBox>
 
 /*类静态数据成员定义*/
 const QSize BoardWidget::WIDGET_SIZE(430, 430);
@@ -19,6 +14,7 @@ const bool BoardWidget::BLACK_PLAYER;
 
 BoardWidget::BoardWidget(int boardSize,QWidget *parent) ://获取棋盘大小，创建棋盘界面
     QWidget(parent),
+    visited(15, QVector<bool>(15, false)),
     trackPos(28, 28)
 {
     setWindowTitle("NoGo");
@@ -32,6 +28,11 @@ BoardWidget::BoardWidget(int boardSize,QWidget *parent) ://获取棋盘大小，
     QPushButton *changeTimeButton = new QPushButton("Change Time", this);
     changeTimeButton->setGeometry(QRect(340, 70, 90, 30));
     connect(changeTimeButton, &QPushButton::clicked, this, &BoardWidget::onChangeTimeButtonClicked);
+    //认输
+    QPushButton *giveUp = new QPushButton("Give Up", this);
+    giveUp->setGeometry(QRect(340, 110, 90, 30));
+    connect(giveUp, &QPushButton::clicked, this, &BoardWidget::giveUp);
+
 
     //初始化计时器和棋盘
     initTime();//initBoard用到了initTime初始化的timer指针，二者顺序不可交换
@@ -151,6 +152,11 @@ void BoardWidget::mouseMoveEvent(QMouseEvent *event)//鼠标移动显示即将�
     setTrackPos(QPoint(x - offsetX, y - offsetY) + START_POS - QPoint(CELL_SIZE.width()/2, CELL_SIZE.height()/2));
 }
 
+void BoardWidget::setTrackPos(const QPoint &value)//包含更新棋盘
+{
+    trackPos = value;
+    update();
+}
 
 void BoardWidget::initBoard()//初始化棋盘
 {
@@ -158,15 +164,35 @@ void BoardWidget::initBoard()//初始化棋盘
     newGame();
 }
 
-void BoardWidget::downPiece(int x, int y)//实现落子，xy由鼠标获取
+void BoardWidget::downPiece(int x, int y)
 {
     if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT && board[x][y] == NO_PIECE)
     {
-        dropedPieces.push(QPoint(x, y));
         board[x][y] = (nextPlayer == WHITE_PLAYER) ? WHITE_PIECE : BLACK_PIECE;
-        update();
-        switchNextPlayer();
-        remainingTime=SET_TIME;
+
+        if (!isSuicidalMove(x, y))
+        {
+            if (capturesOpponent(x, y))
+            {
+                // 当落子一方吃掉对方棋子时，判断其为负方
+                gameOver(nextPlayer);
+            }
+
+            else
+            {
+                dropedPieces.push(QPoint(x, y));
+                update();
+                switchNextPlayer();
+                remainingTime=SET_TIME; // 更新时间
+                update();
+            }
+        }
+        else
+        {
+            // 落子导致己方棋子没气，判负
+            board[x][y] = NO_PIECE;
+            gameOver(nextPlayer);
+        }
     }
 }
 
@@ -197,6 +223,7 @@ void BoardWidget::newGame()//开始新游戏
     update();
     emit turnNextPlayer(nextPlayer);
 }
+
 void BoardWidget::initTime()//初始化时间
 {
     //初始化计时
@@ -215,6 +242,7 @@ void BoardWidget::initTime()//初始化时间
         // 开始计时
         timer->start();
 }
+
 void BoardWidget::onTimerTimeout()//不是定时60s后执行，而是每秒执行（设置的间隔是1000ms），修改显示的时间
 {
     // 每秒减少剩余时间
@@ -224,12 +252,14 @@ void BoardWidget::onTimerTimeout()//不是定时60s后执行，而是每秒执�
     timeLabel->setText(QString("Time: %1 s").arg(remainingTime));
 
     // 检查剩余时间是否已用完
-    if (remainingTime <= 0) {
+    if (remainingTime <= 0)
+    {
         timer->stop();
-        // 通知玩家时间已用完，还没加判负功能
-        QMessageBox::information(this, "Time out", "Time is up!");
+        if(nextPlayer)QMessageBox::information(this, "Time out", "White player loses!");
+        else QMessageBox::information(this, "Time out", "Black player loses!");
     }
 }
+
 void BoardWidget::onChangeTimeButtonClicked()//更改时间，点击后可输入新的时间间隔
 {
     timer->stop();
@@ -251,16 +281,94 @@ void BoardWidget::onChangeTimeButtonClicked()//更改时间，点击后可输入
     }
     timer->start();
 }
+
 Board BoardWidget::getBoard()
 {
     return board;
 }
+
 void BoardWidget::setReceivePlayers(const QSet<int> &value)
 {
     receivePlayers = value;
 }
-void BoardWidget::setTrackPos(const QPoint &value)//包含更新棋盘
+
+void BoardWidget::initVisited()
 {
-    trackPos = value;
-    update();
+ for(int i=0;i<15;i++)
+ {
+     for(int j=0;j<15;j++)
+     {
+         visited[i][j]=0;
+     }
+ }
+}
+
+bool BoardWidget::isSuicidalMove(int x, int y)//检查落子是否为自杀行为（导致己方棋子没气）
+{
+    int currentColor = board[x][y];
+    initVisited();
+    if (!hasLiberties(board,visited, x, y, currentColor)) return true;
+    else return false;
+}
+
+bool BoardWidget::hasLiberties( Board tempBoard,QVector<QVector<bool>> &visited, int x, int y, int color)
+//判断在（x，y）坐标下的color色棋子是否有气，visited用于记录每个位置在递归过程中是否访问过
+{
+    if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT)
+    {
+       return false;
+    }
+    else if(visited[x][y]) return false;
+    visited[x][y] = 1;
+
+    if (tempBoard[x][y] == NO_PIECE)
+    {
+        initVisited();
+        return true;
+    }
+    if (tempBoard[x][y] != color)
+    {
+        visited[x][y] = 0;
+        return false;
+    }
+
+    return hasLiberties(tempBoard, visited, x - 1, y, color) || hasLiberties(tempBoard, visited, x + 1, y, color) ||
+           hasLiberties(tempBoard, visited, x, y - 1, color) || hasLiberties(tempBoard, visited, x, y + 1, color);
+}
+
+bool BoardWidget::capturesOpponent(int x, int y)//判断是否吃掉对方棋子
+{
+    int currentColor = board[x][y];
+    int opponentColor = (currentColor == WHITE_PIECE) ? BLACK_PIECE : WHITE_PIECE;
+
+    QVector<QPoint> neighbors;
+    neighbors << QPoint(x - 1, y) << QPoint(x + 1, y) << QPoint(x, y - 1) << QPoint(x, y + 1);
+    bool captured = false;
+
+    for (const QPoint &neighbor : neighbors)
+    {
+        int nx = neighbor.x();
+        int ny = neighbor.y();
+        if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny] == opponentColor)
+        {
+            initVisited();
+            if (!hasLiberties(board,visited, nx, ny, opponentColor))
+            {
+                captured = true;
+            }
+        }
+    }
+    return captured;
+}
+
+void BoardWidget::gameOver(int loser)//游戏结束，显示输家信息并开始新游戏
+{
+timer->stop();
+QString loserStr = (loser == WHITE_PLAYER) ? "White" : "Black";
+QMessageBox::information(this, "Game Over", loserStr + " player loses!");
+newGame();
+}
+void BoardWidget::giveUp()//认输
+{
+    gameOver(nextPlayer);
 }

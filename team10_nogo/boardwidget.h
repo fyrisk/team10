@@ -8,6 +8,11 @@
 #include <QSet>
 #include <QPushButton>
 #include <QInputDialog>
+#include <QPainter>
+#include <QMouseEvent>
+#include <QFile>
+#include <QDataStream>
+#include <QMessageBox>
 typedef int (*Board)[15];
 
 class BoardWidget : public QWidget
@@ -39,9 +44,14 @@ public slots:
     void initTime();
     void onTimerTimeout();
     void onChangeTimeButtonClicked();
+    void giveUp();
     void setTrackPos(const QPoint &value);  //设置当前鼠标所在棋盘中的位置
-
-
+    //游戏胜负判断(public slots)
+    bool isSuicidalMove(int x, int y);
+    bool hasLiberties( Board tempBoard,QVector<QVector<bool>> &visited, int x, int y, int color);
+    bool capturesOpponent(int x, int y);
+    void gameOver(int loser);
+    void initVisited();
 public:
     static const QSize WIDGET_SIZE;         //棋盘控件大小
     static const QSize CELL_SIZE;           //棋盘单元格大小
@@ -56,6 +66,8 @@ public:
     static const int BLACK_PIECE = 2;       //棋子标志，表示黑子
     static const bool WHITE_PLAYER = true;  //棋手标志， 表示白方
     static const bool BLACK_PLAYER = false; //棋手标志， 表示黑方
+    QVector<QVector<bool>> visited;
+    bool hasLiberty;
 
 private:
     int board[15][15];       //棋盘信息
@@ -67,5 +79,4 @@ private:
     QLabel *timeLabel;
     int remainingTime;//计时用：显示时间 fy
 };
-
 #endif // BOARDWIDGET_H
