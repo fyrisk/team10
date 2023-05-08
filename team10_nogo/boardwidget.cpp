@@ -1,5 +1,6 @@
 #include "boardwidget.h"
-
+#include <QDateTime>
+#include "network/networkdata.h"
 
 
 /*类静态数据成员定义*/
@@ -36,6 +37,11 @@ BoardWidget::BoardWidget(int boardSize,QWidget *parent) :
     giveUpButton->setGeometry(QRect(340, 80, 90, 30));
     connect(giveUpButton, &QPushButton::clicked, this, &BoardWidget::onGiveUpButtonClicked);
 
+    //输出行棋记录
+    QPushButton *showButton = new QPushButton("show history", this);
+    showButton->setGeometry(QRect(340, 240, 90, 30));
+    connect(showButton, &QPushButton::clicked, this, &BoardWidget::onShowButtonClicked);
+
     // 白方步数
     whiteStepLabel = new QLabel("白方：0步", this);
     whiteStepLabel->setGeometry(QRect(330, 130, 100, 20));
@@ -54,10 +60,14 @@ BoardWidget::BoardWidget(int boardSize,QWidget *parent) :
     //初始化计时器和棋盘
     initTime();//initBoard用到了initTime初始化的timer指针，二者顺序不可交换
     initBoard();
+    timer->stop();
 }
 
 
-
+void BoardWidget::setPlayerName( QString &playerName)
+{
+    name = playerName;
+}
 void BoardWidget::paintEvent(QPaintEvent *)
 {
 
@@ -163,7 +173,12 @@ void BoardWidget::mouseReleaseEvent(QMouseEvent *event)
         {
             pieceY++;
         }
-        downPiece(pieceX, pieceY);
+        //qDebug()<<" pvpcolor=  "<<PVPColor<<"nextplayer"<<nextPlayer;
+        if(flag==0)
+        if(isPVP==0||(nextPlayer&&PVPColor==1)||(!nextPlayer&&PVPColor==2))
+        {
+                downPiece(pieceX, pieceY);
+        }
     }
 }
 
@@ -209,15 +224,18 @@ Board BoardWidget::getBoard()
 
 void BoardWidget::switchNextPlayer()
 {
-    if (nextPlayer == WHITE_PLAYER) {
+    if (nextPlayer == WHITE_PLAYER)
+    {
             whiteStepCount++;
             whiteStepLabel->setText(QString("白方：%1步").arg(whiteStepCount));
             whiteThinkingTime += originTime-remainingTime;
-        } else {
-            blackStepCount++;
-            blackStepLabel->setText(QString("黑方：%1步").arg(blackStepCount));
-            blackThinkingTime += originTime-remainingTime;
-        }
+    }
+    else
+    {
+        blackStepCount++;
+        blackStepLabel->setText(QString("黑方：%1步").arg(blackStepCount));
+        blackThinkingTime += originTime-remainingTime;
+    }
     totalStepLabel->setText(QString("总步数：%1步").arg(blackStepCount+whiteStepCount));
     nextPlayer = !nextPlayer;
     emit turnNextPlayer(nextPlayer);
@@ -235,16 +253,17 @@ void BoardWidget::newGame()
     }
     dropedPieces.clear();
     nextPlayer = BLACK_PLAYER;
-    remainingTime=60;//更新时间
+    remainingTime=SET_TIME;//更新时间  // gai为settime
+    flag=0;
     if (timer) {
-        timer->start();
+        timer->stop();
     }
     flag=0;
     whiteThinkingTime=0;
     blackThinkingTime=0;
     whiteStepCount=0;
     blackStepCount=0;
-    originTime=60;
+    originTime=SET_TIME;
     whiteStepLabel->setText(QString("白方：%1步").arg(whiteStepCount));
     blackStepLabel->setText(QString("黑方：%1步").arg(blackStepCount));
     totalStepLabel->setText(QString("总步数：%1步").arg(blackStepCount+whiteStepCount));
@@ -255,7 +274,7 @@ void BoardWidget::newGame()
 void BoardWidget::initTime()//初始化时间
 {
     //初始化计时
-    remainingTime = 60;
+    remainingTime = SET_TIME;
 
         // 初始化 QLabel 控件
         timeLabel = new QLabel(this);
@@ -283,14 +302,25 @@ void BoardWidget::onTimerTimeout()//不是定时60s后执行，而是每秒执�
         timer->stop();
         QMessageBox::information(this, "Time out", "Time is up!");
         flag=1;
-        if (nextPlayer == WHITE_PLAYER)
+        QString map ="T";
+        droppedPiecesM.append(map);
+        if(isPVP)
         {
-            gameOver(WHITE_PLAYER);
+            if(nextPlayer!=PVPColor )
+            {
+                emit send(NetworkData(OPCODE::TIMEOUT_END_OP,name,"goodgame"));
+                sended=true;
+            }
         }
-        else
-        {
-            gameOver(BLACK_PLAYER);
-        }
+          if (nextPlayer == WHITE_PLAYER)
+          {
+              gameOver(WHITE_PLAYER);
+          }
+          else
+          {
+              gameOver(BLACK_PLAYER);
+          }
+
     }
 }
 
@@ -319,19 +349,33 @@ void BoardWidget::onChangeTimeButtonClicked()//更改时间，点击后可输入
 
 void BoardWidget::onGiveUpButtonClicked()
 {
-    flag=1;
-    if (nextPlayer == WHITE_PLAYER)
+
+    if(flag!=1&&(isPVP==0||(nextPlayer&&PVPColor==1)||(!nextPlayer&&PVPColor==2)))
     {
+        QString map ="G";
+        droppedPiecesM.append(map);
+        flag=1;
+      if(isPVP==1)
+     {
+      QString a=name;
+      QString b="";
+      NetworkData data=NetworkData(OPCODE::GIVEUP_OP,a,b);
+      emit send(data);
+     }
+      if (nextPlayer == WHITE_PLAYER)
+     {
         gameOver(WHITE_PLAYER);
-    }
-    else
-    {
+     }
+      else
+     {
         gameOver(BLACK_PLAYER);
+     }
     }
 }
 
 void BoardWidget::downPiece(int x, int y)
 {
+    //qDebug()<<"downpiece"<<x<<" ispvp=  "<<PVPColor<<"nextplayer"<<nextPlayer;
     if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT && board[x][y] == NO_PIECE)
     {
         board[x][y] = (nextPlayer == WHITE_PLAYER) ? WHITE_PIECE : BLACK_PIECE;
@@ -342,15 +386,29 @@ void BoardWidget::downPiece(int x, int y)
             if (capturesOpponent(x, y))
             {
                 // 当落子一方吃掉对方棋子时，判断其为负方
-                gameOver(nextPlayer);
+                QMessageBox::warning(this, tr("警告"), tr("吃子会判负！"));
+                board[x][y] = NO_PIECE;  // 清除棋子
+                    update();
+                    return;
+                //gameOver(nextPlayer);
             }
 
             else
             {
+                QString map = QString(QChar('A' + y)) + QString::number(x + 1);
                 dropedPieces.push(QPoint(x, y));
+                droppedPiecesM.append(map);
                 update();
                 switchNextPlayer();
-                remainingTime=SET_TIME; // 更新时间
+                if(isPVP==1)
+                {
+                    //qDebug() << "into emit sent";
+                    QString time = QString::number(QDateTime::currentMSecsSinceEpoch());
+                    NetworkData data=NetworkData(OPCODE::MOVE_OP,map,time);
+                    emit send(data);
+                }
+                remainingTime=SET_TIME-elapsed; // 更新时间
+                timer->start();
                 update();
             }
         }
@@ -459,6 +517,7 @@ void BoardWidget::initVisited()
 void BoardWidget::gameOver(int loser)//游戏结束，显示输家信息并开始新游戏
 {
 timer->stop();
+flag=1;
 QString loserStr = (loser == WHITE_PLAYER) ? "白方" : "黑方";
 if(loser==WHITE_PLAYER&&flag==0){
     whiteStepCount++;
@@ -483,4 +542,16 @@ totalStepLabel->setText(QString("总步数：%1步").arg(blackStepCount+whiteSte
                                       .arg(whiteAvgThinkingTime,0,'f',2)
                                       .arg(blackAvgThinkingTime,0,'f',2)
                                       .arg(TotalTime,0,'f',2));
+}
+
+
+void BoardWidget::onShowButtonClicked()
+{
+    QString record;
+    for (int i = 0; i < droppedPiecesM.size(); ++i)
+    {
+        record += droppedPiecesM[i];
+        if (i != droppedPiecesM.size() - 1) record+=" ";
+    }
+    QMessageBox::information(this, tr("行棋记录"), record);
 }

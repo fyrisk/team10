@@ -14,7 +14,7 @@
 #include <QDataStream>
 #include <QMessageBox>
 #include <QMessageBox>
-
+#include "network/networkdata.h"
 
 typedef int (*Board)[15];
 
@@ -44,16 +44,18 @@ private:
 
 signals:
     void turnNextPlayer(int player);
-
+    void send(NetworkData data);
 public slots:
+    void setPlayerName( QString &playerName);
     //开始新游戏
     void newGame();
     //落子
     void downPiece(int x, int y);
     void initTime();
-    void onTimeTimeout();
+    //void onTimeTimeout();
     void onChangeTimeButtonClicked();
     void onGiveUpButtonClicked();
+    void onShowButtonClicked();
     void setTrackPos(const QPoint &value);//设置当前鼠标所在棋盘中的位置
 
     //游戏胜负判断(public slots)
@@ -75,6 +77,7 @@ public:
      int BOARD_WIDTH = 15;      //棋盘列数(修改了类型，用于改大小 fy)
      int BOARD_HEIGHT = 15;
      int SET_TIME=60;     //棋盘行数
+     int elapsed=0;
     static const int NO_PIECE = 0;          //棋子标志，表示无子
     static const int WHITE_PIECE = 1;       //棋子标志, 表示白子
     static const int BLACK_PIECE = 2;       //棋子标志，表示黑子
@@ -82,15 +85,21 @@ public:
     static const bool BLACK_PLAYER = false; //棋手标志， 表示黑方
     QVector<QVector<bool>> visited;
     bool hasLiberty;
+    int isPVP=0;
+    int PVPColor=BLACK_PIECE;
+    bool sended=false;
 
 
 private:
     int board[15][15];       //棋盘信息
-    int nextPlayer;                             //表示下一位棋手
+    int nextPlayer;
+    QString name;
+    //表示下一位棋手
     QPoint trackPos;                            //记录鼠标在棋盘中的位置
     QPoint lastpiece;                           //记录最后一颗落子的位置
     QSet<int> receivePlayers;                   //棋盘接受点击下棋的棋手
     QStack<QPoint> dropedPieces;                //每一步落子位置
+    QVector<QString> droppedPiecesM;             //行棋编码存储
     QTimer *timer;
     QLabel *timeLabel;
     QLabel *whiteStepLabel;  // 白方步数
@@ -102,7 +111,7 @@ private:
     int whiteThinkingTime;
     int blackThinkingTime;
     int originTime;
-    int flag;//判断有无投降
+    int flag=0;//判断有无投降
     double whiteAvgThinkingTime;
     double blackAvgThinkingTime;
     double TotalTime;

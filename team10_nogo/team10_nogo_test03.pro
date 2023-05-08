@@ -1,4 +1,6 @@
-QT       += core gui
+QT       += core gui\
+network
+
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -11,16 +13,26 @@ CONFIG += c++17
 SOURCES += \
     boardwidget.cpp \
     gamewidget.cpp \
-    main.cpp
+    network/networkdata.cpp \
+    network/networkserver.cpp \
+    network/networksocket.cpp \
+    main.cpp \
+    readydialog.cpp \
+    settingswindow.cpp
 
 HEADERS += \
     boardwidget.h \
-    gamewidget.h
+    network/networkdata.h \
+    network/networkserver.h \
+    network/networksocket.h \
+    gamewidget.h \
+    readydialog.h \
+    settingswindow.h
 
 FORMS += \
     boardwidget.ui \
-    gamewidget.ui
-
+    gamewidget.ui \
+    settingswindow.ui
 TRANSLATIONS += \
     team10_nogo_test03_zh_CN.ts
 CONFIG += lrelease
