@@ -70,7 +70,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>reset</string>
+     <string>startServer</string>
     </property>
    </widget>
    <widget class="QPushButton" name="reConnectButton">

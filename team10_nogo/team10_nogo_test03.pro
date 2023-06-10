@@ -13,6 +13,7 @@ CONFIG += c++17
 SOURCES += \
     boardwidget.cpp \
     gamewidget.cpp \
+    gomokuai.cpp \
     network/networkdata.cpp \
     network/networkserver.cpp \
     network/networksocket.cpp \
@@ -22,6 +23,7 @@ SOURCES += \
 
 HEADERS += \
     boardwidget.h \
+    gomokuai.h \
     network/networkdata.h \
     network/networkserver.h \
     network/networksocket.h \

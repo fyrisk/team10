@@ -21,8 +21,8 @@ GameWidget::GameWidget(QWidget *parent)
 {
     setWindowTitle("NoGo");
     ui->setupUi(this);
-    IP = "127.0.0.1";
-    PORT = 16667;
+    IP = "10.46.7.96";
+    PORT = 16677;
     //服务器
     this->server = new NetworkServer(this);
 
@@ -30,8 +30,7 @@ GameWidget::GameWidget(QWidget *parent)
 
     // 创建一个客户端
     this->socket = new NetworkSocket(new QTcpSocket(),this);
-   /* server = new NetworkServer(this);
-    socket = new NetworkSocket(new QTcpSocket(), this);*/
+
     // 创建 "Begin" 按钮
         QPushButton *beginButton = new QPushButton("Begin 9*9", this);
         beginButton->setGeometry(QRect(10, 10, 150, 30));
@@ -47,6 +46,8 @@ GameWidget::GameWidget(QWidget *parent)
         reStart->setGeometry(QRect(10, 210, 120, 50));
         QPushButton *PvpButton = new QPushButton("PvP Settings", this);
         PvpButton->setGeometry(QRect(10, 250, 120, 50));
+        QPushButton *loadButton = new QPushButton("Load last game", this);
+        loadButton->setGeometry(QRect(10, 290, 120, 50));
         player1 = new QLabel("player 1(you)", this);
         player1->setGeometry(QRect(560, 50, 160, 50));
         player2 = new QLabel("player 2", this);
@@ -57,8 +58,6 @@ GameWidget::GameWidget(QWidget *parent)
         playerc2->setGeometry(QRect(560, 120, 160, 50));
 
     //连接(联机部分)
-
-
     //连接其他部分
         connect(beginButton, &QPushButton::clicked, this, &GameWidget::onSizeButton9Clicked);
         connect(sizeButton11, &QPushButton::clicked, this, &GameWidget::onSizeButton11Clicked);
@@ -66,15 +65,7 @@ GameWidget::GameWidget(QWidget *parent)
         connect(newGame, &QPushButton::clicked, this, [this]() { this->newGame(); });
         connect(reStart, &QPushButton::clicked, this, &GameWidget::restartGame);
         connect(PvpButton, &QPushButton::clicked, this, &GameWidget::onPvpButtonClicked);
-    // 连接 NetworkServer 和 NetworkSocket 的信号和槽
-       /* connect(server, &NetworkServer::newConnectionRequest, this, &GameWidget::onNewConnectionRequest);
-        connect(server, &NetworkServer::receive, this, &GameWidget::onServerReceive);
-        connect(socket, &NetworkSocket::receive, this, &GameWidget::onSocketReceive);
-        connect(socket->base(), &QAbstractSocket::errorOccurred, this, &GameWidget::displayError);
-        connect(socket->base(), &QAbstractSocket::connected, this, &GameWidget::connected);
-        // gamewidget.cpp
-        connect(socket->base(), &QIODevice::readyRead, this, &GameWidget::onDeviceReadyRead);*/
-
+        connect(loadButton, &QPushButton::clicked, this, &GameWidget::onLoadButtonClicked);
 }
 
 GameWidget::~GameWidget()
@@ -171,10 +162,9 @@ void GameWidget::setsUser(QString color,QString name)
 }
 void GameWidget::startServer(int port)
 {
-    if (server)
-    {
-        delete server;
-    }
+    disconnect(this->server,&NetworkServer::receive,this,&GameWidget::handleClientData);
+    clients.clear();
+    delete this->server;
     server = new NetworkServer(this);
     connect(this->server,&NetworkServer::receive,this,&GameWidget::handleClientData);
     server->listen(QHostAddress::Any, port);
@@ -188,7 +178,7 @@ void GameWidget::connectToServer(const QString &ip, int port)
     connect(this->socket->base(), &QTcpSocket::connected, settingsWindow, &SettingsWindow::setConnectionStatus, Qt::QueuedConnection);
     connect(this->socket,&NetworkSocket::receive,this,&GameWidget::handleData);
     qDebug()<<"start reconnect";
-    if(!this->socket->base()->waitForConnected(3000))
+    if(!this->socket->base()->waitForConnected(10000))
     {
         qDebug()<<"reconnect fail";
     }
@@ -203,11 +193,16 @@ void GameWidget::disconnectAll()
 }
 void GameWidget::handleData(NetworkData data)
 {
+    showTime();
+    qDebug() << "receive OP"<<data.encode();
     handleNetworkMessage(nullptr, data);
 };
 void GameWidget::handleClientData(QTcpSocket* client, NetworkData data)
 {
+    showTime();
+    qDebug() << "receive OP"<<data.encode();
     lastOne=client;
+    this->clients.insert(client);
     handleNetworkMessage(client, data);
 };
 void GameWidget::handleNetworkMessage(QTcpSocket* client, NetworkData data)
@@ -216,7 +211,7 @@ void GameWidget::handleNetworkMessage(QTcpSocket* client, NetworkData data)
     {
     case OPCODE::READY_OP:
         // 处理 READY_OP 请求，如创建 boardWidget 棋盘和设置初始状态
-        ready(data);
+        ready(data,client);
         break;
     case OPCODE::REJECT_OP:
         // 处理 REJECT_OP 请求
@@ -253,13 +248,15 @@ void GameWidget::handleNetworkMessage(QTcpSocket* client, NetworkData data)
         break;
     default:
         // 处理未知操作码
+        qDebug()<<"receive wrong message";
         break;
     }
 }
 void GameWidget::sendReady(OPCODE op, QString name, QString color)
 {
-    this->socket->send(NetworkData(OPCODE::READY_OP,name,color));
+    Send(NetworkData(OPCODE::READY_OP,name,color));
     PVPTime=settingsWindow->time;
+    readySended=true;
    // qDebug()<<"sendReady color="<<color;
 }
 void GameWidget::handleReadyClicked(const NetworkData &data)
@@ -282,20 +279,31 @@ void GameWidget::handleReadyClicked(const NetworkData &data)
     player=(data.data2 == "b" ? true : false);
     // 向对方发送 READY_OP 信号
     NetworkData readyData(OPCODE::READY_OP, userName, myColor);
-    sendToSocket(readyData);
+    Send(readyData);
    // qDebug()<<"server color :"<<boardWidget->PVPColor<<"ispvp"<<boardWidget->isPVP;
+    while (!requestQueue.isEmpty())
+    {
+        Request nextRequest = requestQueue.dequeue();
+        NetworkData rejectData(OPCODE::REJECT_OP, userName, "xia_ci_yi_ding");
+        server->send(nextRequest.client,rejectData);
+    }
 }
 
 void GameWidget::handleRejectClicked()
 {
     // 处理 reject 操作
     NetworkData rejectData(OPCODE::REJECT_OP, userName, "xia_ci_yi_ding");
-    sendToSocket(rejectData.encode());
+    sendToSocket(rejectData);
+    if(!requestQueue.isEmpty())
+    {
+        handleReadys(requestQueue);
+    }
 }
 void GameWidget::Send(NetworkData data)
 {
     //qDebug() << "send it";
     //本机作为客户端
+    showTime();
     if(lastOne==nullptr) sendToServer(data);
     //本机作为服务端
     else sendToSocket(data);
@@ -303,32 +311,74 @@ void GameWidget::Send(NetworkData data)
 void GameWidget::sendToSocket(NetworkData data)
 {
     server->send(lastOne,data);
-    qDebug() << "send OP to SOCKET "<<data.encode()<<" "<<data.data1<<" "<<data.data2;
+    qDebug() << "send OP"<<data.encode();
+
 }
 void GameWidget::sendToServer(NetworkData data)
 {
     socket->send(data);
-    qDebug() << "send OP to SERVER "<<data.encode()<<" "<<data.data1<<" "<<data.data2;
+    qDebug() << "send OP"<<data.encode();
 }
-void GameWidget::ready(NetworkData data)
+void GameWidget::handleReadys(QQueue<GameWidget::Request> &requestQueue1)
 {
-  qDebug() << "receiveReady";
-
-  if(!settingsWindow->connected)
+    qDebug()<<requestQueue.size()<<"  in handle";
+    //只有请求队列元素个数为1时才执行，弹出请求
+  if(requestQueue.size() == 1)
   {
-    ReadyDialog dialog(this);
-    connect(&dialog, &ReadyDialog::readyClicked, this, [this, data] {
+     Request currentRequest = requestQueue.first();
+     ReadyDialog dialog(this);
+     NetworkData data = currentRequest.data;
+
+     connect(&dialog, &ReadyDialog::readyClicked, this, [this, &dialog, data] {
+        requestQueue.dequeue();
+                dialog.accept();  // 关闭对话框
         handleReadyClicked(data);
+
+     });
+
+     connect(&dialog, &ReadyDialog::rejectClicked, this, [this, &dialog] {
+        requestQueue.dequeue();
+                dialog.accept();  // 关闭对话框
+        handleRejectClicked();
+     });
+
+     dialog.exec();
+  }
+}
+
+void GameWidget::ready(NetworkData data,QTcpSocket* client)
+{
+  //qDebug() << "receiveReady";
+  if(!readySended)//意味着收到别人的对局请求
+  {
+      if(client!=nullptr)//意味着自己作为服务端，且存在连接到自己的客户端
+      {
+          Request newRequest=Request(data.op,data.data1,data.data2,client);
+          //Request结构体存储了接受到的readyop请求和发送请求的客户端
+          requestQueue.enqueue(newRequest);
+          //队列requestQueue存储Request结构体
+          qDebug()<<requestQueue.size()<<"  yes  ";
+          handleReadys(requestQueue);
+      }
+      else
+      {
+    ReadyDialog dialog(this);
+    connect(&dialog, &ReadyDialog::readyClicked, this, [this, &dialog, data] {
+                dialog.accept();  // 关闭对话框
+        handleReadyClicked(data);
+
     });
 
-    connect(&dialog, &ReadyDialog::rejectClicked, this, [this] {
+    connect(&dialog, &ReadyDialog::rejectClicked, this, [this, &dialog] {
+                dialog.accept();  // 关闭对话框
         handleRejectClicked();
     });
-
     dialog.exec();
+      }
   }
-  else
+  else//意味着别人接受了自己的请求，开始游戏（省略）
   {
+      readySended=false;//使本机可以接受别人请求
       QString opponentName = data.data1;
       QString myColor = (data.data2 == "b" ? "w" : "b");
       QString opponentColor = data.data2;
@@ -343,7 +393,7 @@ void GameWidget::ready(NetworkData data)
       boardWidget->setPlayerName(userName);
       boardWidget->PVPColor=(data.data2 == "b" ? 1 : 2);
       player=(data.data2 == "b" ? true : false);
-      qDebug()<<"socket color :"<<boardWidget->PVPColor<<"ispvp"<<boardWidget->isPVP;
+      //qDebug()<<"socket color :"<<boardWidget->PVPColor<<"ispvp"<<boardWidget->isPVP;
   }
 }
 
@@ -353,21 +403,25 @@ void GameWidget::reject(NetworkData data)
 };
 void GameWidget::move(NetworkData data)
 {
-    qDebug() << "receive MOVE_OP";
+    //qDebug() << "receive MOVE_OP";
     int r=data.data1.at(0).unicode() - 'A';
     int c=data.data1.at(1).unicode() - '1';
     boardWidget->downPiece(c,r);
-    qint64 opponentTimestamp = data.data2.toLongLong();
+    /*qint64 opponentTimestamp = data.data2.toLongLong();
     qint64 currentTimestamp = QDateTime::currentMSecsSinceEpoch();
     qint64 elapsed = currentTimestamp - opponentTimestamp;
-    int ct=2*elapsed/1000;
-    boardWidget->elapsed=ct;
+    int ct;
+    ct=0;
+    boardWidget->elapsed=ct;*/
 };
 void GameWidget::giveup(NetworkData data)
 {
     Send(NetworkData(OPCODE::GIVEUP_END_OP,userName,"goodgame"));
     sended=true;
+    boardWidget->droppedPiecesM.append("G");
+    boardWidget->flag=1;
     boardWidget->gameOver(!player);
+    //boardWidget->onGiveUpButtonClicked();
 };
 void GameWidget::leave(NetworkData data)
 {
@@ -384,13 +438,14 @@ void GameWidget::timeoutend(NetworkData data)
 {    if(!boardWidget->sended)
     {
       Send(NetworkData(OPCODE::TIMEOUT_END_OP,userName,"goodgame"));
-      boardWidget->gameOver(player);
+      //boardWidget->gameOver(player);
     }
 };
 void GameWidget::suicideend(NetworkData data)
 {
     if(!sended)
     {
+       sended=true;
       Send(NetworkData(OPCODE::SUICIDE_END_OP,userName,"goodgame"));
       boardWidget->gameOver(player);
     }
@@ -401,3 +456,24 @@ void GameWidget::giveupend(NetworkData data)
     if(!sended) Send(NetworkData(OPCODE::GIVEUP_END_OP,userName,"goodgame"));
 };
 
+void GameWidget::showTime()
+{
+    // 获取当前的 UTC 时间
+    QDateTime currentUtcTime = QDateTime::currentDateTimeUtc();
+
+    // 将 UTC 时间转换为北京时间（UTC+8）
+    QDateTime beijingTime = currentUtcTime.addSecs(8 * 60 * 60);
+
+    // 将 QDateTime 对象转换为字符串并按照指定的格式显示
+    QString beijingTimeString = beijingTime.toString("yyyy-MM-dd hh:mm:ss");
+
+    qDebug() << "Beijing Time:" << beijingTimeString;
+}
+void GameWidget::onLoadButtonClicked()
+{
+    if (boardWidget==nullptr)
+    {
+        onSizeButton9Clicked();
+        boardWidget->showLast();
+    }
+}

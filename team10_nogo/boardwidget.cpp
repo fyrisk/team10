@@ -1,7 +1,9 @@
 #include "boardwidget.h"
 #include <QDateTime>
 #include "network/networkdata.h"
-
+#include <QFile>
+#include <QTextStream>
+#include "gomokuai.h"
 
 /*类静态数据成员定义*/
 const QSize BoardWidget::WIDGET_SIZE(430, 430);
@@ -18,7 +20,8 @@ const bool BoardWidget::BLACK_PLAYER;
 BoardWidget::BoardWidget(int boardSize,QWidget *parent) :
     QWidget(parent),
     visited(15, QVector<bool>(15, false)),
-    trackPos(28, 28)
+    trackPos(28, 28),
+    isGameWithAi(0)
 {
     setWindowTitle("NoGo");
     //设置棋盘大小
@@ -26,21 +29,56 @@ BoardWidget::BoardWidget(int boardSize,QWidget *parent) :
     BOARD_HEIGHT = boardSize;
     setFixedSize(WIDGET_SIZE);
     setMouseTracking(true);
+    //设置切换人机模式的按钮
+    QPushButton *switchModeButton = new QPushButton("AI", this);
+    switchModeButton->setGeometry(QRect(340, 310, 90, 30));
+    connect(switchModeButton, &QPushButton::clicked, this, &BoardWidget::onSwitchModeButtonClicked);
 
+    QPushButton *stopAIButton = new QPushButton("stop AI", this);
+    stopAIButton->setGeometry(QRect(340, 350, 90, 30));
+    connect(stopAIButton, &QPushButton::clicked, this, &BoardWidget::stopAIPlayer);
+
+    QPushButton *EVEButton = new QPushButton("EVE", this);
+    EVEButton->setGeometry(QRect(340, 390, 90, 30));
+    connect(EVEButton, &QPushButton::clicked, this, &BoardWidget::onEVEButtonClicked);
     //修改倒计时时间按钮
     QPushButton *ChangeTimeButton = new QPushButton("Change Time", this);
     ChangeTimeButton -> setGeometry(QRect(340, 50, 90, 30));
     connect(ChangeTimeButton, &QPushButton::clicked, this, &BoardWidget::onChangeTimeButtonClicked);
-
     //设置投降按钮
     QPushButton *giveUpButton = new QPushButton("Give up", this);
     giveUpButton->setGeometry(QRect(340, 80, 90, 30));
     connect(giveUpButton, &QPushButton::clicked, this, &BoardWidget::onGiveUpButtonClicked);
 
     //输出行棋记录
-    QPushButton *showButton = new QPushButton("show history", this);
-    showButton->setGeometry(QRect(340, 240, 90, 30));
+    QPushButton *showButton = new QPushButton("all history", this);
+    showButton->setGeometry(QRect(340, 270, 90, 30));
     connect(showButton, &QPushButton::clicked, this, &BoardWidget::onShowButtonClicked);
+
+    QPushButton *showLastButton = new QPushButton("last history", this);
+    showLastButton->setGeometry(QRect(340, 230, 90, 30));
+    connect(showLastButton, &QPushButton::clicked, this, &BoardWidget::onShowLastButtonClicked);
+
+    QPushButton *stopButton = new QPushButton("暂停", this);
+    stopButton->setGeometry(QRect(10, 350, 50, 30));
+    connect(stopButton, &QPushButton::clicked, this, &BoardWidget::onStopButtonClicked);
+
+    QPushButton *continueButton = new QPushButton("继续", this);
+    continueButton->setGeometry(QRect(80, 350, 50, 30));
+    connect(continueButton, &QPushButton::clicked, this, &BoardWidget::onContinueButtonClicked);
+
+    QPushButton *lastButton = new QPushButton("上一步", this);
+    lastButton->setGeometry(QRect(150, 350, 70, 30));
+    connect(lastButton, &QPushButton::clicked, this, &BoardWidget::onLastButtonClicked);
+
+    QPushButton *nextButton = new QPushButton("下一步", this);
+    nextButton->setGeometry(QRect(240, 350, 70, 30));
+    connect(nextButton, &QPushButton::clicked, this, &BoardWidget::onNextButtonClicked);
+
+    QPushButton *jumpButton = new QPushButton("跳至…", this);
+    jumpButton->setGeometry(QRect(10, 390, 90, 30));
+    connect(jumpButton, &QPushButton::clicked, this, &BoardWidget::onJumpButtonClicked);
+
 
     // 白方步数
     whiteStepLabel = new QLabel("白方：0步", this);
@@ -63,7 +101,196 @@ BoardWidget::BoardWidget(int boardSize,QWidget *parent) :
     timer->stop();
 }
 
+void BoardWidget::onSwitchModeButtonClicked()
+{   
+    qDebug()<<"into onSwitchModeButtonClicked()";
+    if(isPVP==0||(nextPlayer&&PVPColor==1)||(!nextPlayer&&PVPColor==2))
+    {
+    isGameWithAi=1;
+    AIColor=(nextPlayer == WHITE_PLAYER) ? WHITE_PIECE : BLACK_PIECE;
+    startAIPlayer(); // 启动AI玩家的决策
+    }
+}
+void BoardWidget::onEVEButtonClicked()
+{
+  if(isPVP==0||(nextPlayer&&PVPColor==1)||(!nextPlayer&&PVPColor==2))
+  {
+    isEVE=1;
+    isAITurn[nextPlayer]=1;
+    isAITurn[!nextPlayer]=1;
+    if(!isGameWithAi)
+    {
+        isGameWithAi=1;
+        startAIPlayer();
+    }
+  }
+}
+void BoardWidget::startAIPlayer()
+{
+    qDebug()<<"into startAIPlayer()";
+    // 创建AI玩家对象（GomokuAi），并连接相应信号和槽
 
+         qDebug()<<"into if(aiPlayer==nullptr)";
+         aiPlayer = new GomokuAi(this);
+
+     qDebug()<<"before connect";
+    connect(aiPlayer, &GomokuAi::aiMove, this, &BoardWidget::makeAiMove);
+    isplayerturn=1;
+    isAITurn[nextPlayer]=1;
+     qDebug()<<"after connect and sets";
+    emit turnNextPlayer(nextPlayer);//并没有交换玩家，只是告诉AI开始下棋
+}
+
+void BoardWidget::stopAIPlayer()
+{
+    isGameWithAi = 0;
+    isAITurn[nextPlayer]=0;
+    isAITurn[!nextPlayer]=0;
+    // 断开信号和槽连接，并释放AI玩家对象
+    if(aiPlayer)
+        disconnect(aiPlayer, &GomokuAi::aiMove, this, &BoardWidget::makeAiMove); // 这里断开连接BoardWidget类的makeMove槽
+}
+
+
+void BoardWidget::makeAiMove()
+{
+    // AI玩家进行落子
+    if (aiPlayer&&isAITurn[nextPlayer]==1)
+    {
+
+        QPoint pos = aiPlayer->findBestMove();
+        aiDropPiece(pos.x(), pos.y());
+    }
+}
+
+void BoardWidget::aiDropPiece(int x, int y)
+{
+    downPiece(x,y);
+}
+
+
+int BoardWidget::getBoardWidth() const
+{
+    // 返回棋盘宽度
+    return BOARD_WIDTH;
+}
+
+int BoardWidget::getBoardHeight() const
+{
+    // 返回棋盘高度
+    return BOARD_HEIGHT;
+}
+int BoardWidget::getLiberty(int color)
+{
+    int score=0;
+    for(int i=0;i<BOARD_HEIGHT;i++)
+    {
+        for(int j=0;j<BOARD_HEIGHT;j++)
+        {
+            if(board[i][j]==NO_PIECE)
+            {
+                score+=hasNeighborPiece(i,j,color);
+            }
+        }
+    }
+    return score;
+}
+bool BoardWidget::hasNeighborPiece(int x, int y,int color) const
+{
+    // 检查指定位置的上下左右四个方向是否有相应颜色棋子
+    if (x > 0 && board[x - 1][y] == color)
+        return true;
+    if (x < BOARD_WIDTH - 1 && board[x + 1][y] == color)
+        return true;
+    if (y > 0 && board[x][y - 1] == color)
+        return true;
+    if (y < BOARD_HEIGHT - 1 && board[x][y + 1] == color)
+        return true;
+
+    return false;
+}
+
+int BoardWidget::getPiece(int x, int y) const
+{
+    if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT)
+    {
+        return board[x][y];
+    }
+    else
+    {
+        // 棋盘越界时返回NO_PIECE
+        return NO_PIECE;
+    }
+}
+int BoardWidget::getScore(int color)
+{
+    //局势得分考虑三点：1占据棋盘有利位置多少，棋盘位置的价值存储在value数组中
+    //2 我方棋子气数做负贡献，敌方棋子气数做正贡献
+    //3 我方可落子数，减去对方可落子数
+    int score=8000;
+    for(int i=0;i<BOARD_HEIGHT;i++)
+    {
+        for(int j=0;j<BOARD_HEIGHT;j++)
+        {
+            //考虑占据棋盘有利位置的多少
+            if(board[i][j]==color) score+=value[i][j];
+            if(board[i][j]==3-color) score-=value[i][j];
+            //考虑可落子位置，我方越多越好，对方越少越好（对方颜色为3-color）
+            if(!board[i][j])
+            {
+                if(canDown(i,j,color)) {score+=1000;}
+                if(canDown(i,j,3-color)) {score-=1000;}
+            }
+        }
+    }
+    //考虑气，我方气越少越好，对方越多越好（对方颜色为3-color）
+    score-=getLiberty(color)*100;
+    score+=getLiberty(3-color)*100;
+    return score;
+}
+bool BoardWidget::canDown(int x,int y,int color)
+{
+    int flag=0;
+    if(board[x][y]!=0) return false;
+    board[x][y]=color;
+    if(capturesOpponent(x,y)||isSuicidalMove(x,y)) flag=1;
+    board[x][y]=NO_PIECE;
+    if(flag) return false;
+    return true;
+}
+void BoardWidget::setScores()
+{
+    int color=2-nextPlayer;
+    for(int i=0;i<BOARD_HEIGHT;i++)
+    {
+        for(int j=0;j<BOARD_HEIGHT;j++)
+        {
+            if(canDown(i,j,color))
+            {
+                board[i][j]=color;
+                scores[i][j]=getScore(color);
+                //if(i==4&&j==4) qDebug()<<scores[i][j]<<" 1 ";
+                board[i][j]=NO_PIECE;
+
+                //下面一步是考虑对方落在此处的收益，若对方收益很大我方AI可以提前占据此位置
+                if(canDown(i,j,3-color))
+                {
+                scores[i][j]-=getScore(3-color);
+                board[i][j]=3-color;
+                scores[i][j]+=getScore(3-color);
+                }
+                else scores[i][j]-=3000;
+                board[i][j]=NO_PIECE;
+            }
+            else
+            {
+                //不能落子就设为很小的得分
+                canDown1[i][j]=0;
+                scores[i][j]=-999999;
+            }
+        }
+    }
+}
 void BoardWidget::setPlayerName( QString &playerName)
 {
     name = playerName;
@@ -141,7 +368,6 @@ void BoardWidget::paintEvent(QPaintEvent *)
     for (int i = 0; i < BOARD_WIDTH; i++){
             for (int j = 0; j < BOARD_HEIGHT; j++)
             {
-                // check if the current position is the highlighted position
                 if (lastpiece == QPoint(i, j))
                 {
                     painter.setBrush(Qt::NoBrush);
@@ -173,10 +399,12 @@ void BoardWidget::mouseReleaseEvent(QMouseEvent *event)
         {
             pieceY++;
         }
-        //qDebug()<<" pvpcolor=  "<<PVPColor<<"nextplayer"<<nextPlayer;
+        //qDebug()<<" pvpcolor=  "<<PVPColor<<"nextplayer"<<nextPlayer<<" isAITurn[nextPlayer]=  "<<isAITurn[nextPlayer]<<"isAITurn[!nextPlayer]"<<isAITurn[!nextPlayer];
         if(flag==0)
-        if(isPVP==0||(nextPlayer&&PVPColor==1)||(!nextPlayer&&PVPColor==2))
-        {
+          //if(((isPVP==0&&isGameWithAi==0)||(nextPlayer&&(PVPColor==1||isAITurn[nextPlayer]))||(!nextPlayer&&(PVPColor==2||isAITurn[!nextPlayer]))))
+         if(isPVP==0||(nextPlayer&&PVPColor==1)||(!nextPlayer&&PVPColor==2))
+         if(isGameWithAi==0||!isAITurn[nextPlayer])
+        {          
                 downPiece(pieceX, pieceY);
         }
     }
@@ -211,17 +439,14 @@ void BoardWidget::setTrackPos(const QPoint &value)
     trackPos = value;
     update();
 }
-
 void BoardWidget::setReceivePlayers(const QSet<int> &value)
 {
     receivePlayers = value;
 }
-
 Board BoardWidget::getBoard()
 {
     return board;
 }
-
 void BoardWidget::switchNextPlayer()
 {
     if (nextPlayer == WHITE_PLAYER)
@@ -238,9 +463,9 @@ void BoardWidget::switchNextPlayer()
     }
     totalStepLabel->setText(QString("总步数：%1步").arg(blackStepCount+whiteStepCount));
     nextPlayer = !nextPlayer;
-    emit turnNextPlayer(nextPlayer);
-}
 
+    if(!isAITurn[!nextPlayer]||isEVE) emit turnNextPlayer(nextPlayer);   //发信号让AI开始落子
+}
 void BoardWidget::newGame()
 {
 
@@ -249,6 +474,9 @@ void BoardWidget::newGame()
         for (int j = 0; j < BOARD_HEIGHT; j++)
         {
             board[i][j] = NO_PIECE;
+            canDown1[i][j]=1;
+            value[i][j] = qMin(qAbs(i-2),qAbs(i-6))*10+qMin(qAbs(j-2),qAbs(j-6))*10;//设置value值，标准为角落和中间分值高
+            if(i+j==0||i+j==8||i+j==16) value[i][j]++;
         }
     }
     dropedPieces.clear();
@@ -300,18 +528,18 @@ void BoardWidget::onTimerTimeout()//不是定时60s后执行，而是每秒执�
     // 检查剩余时间是否已用完
     if (remainingTime <= 0) {
         timer->stop();
-        QMessageBox::information(this, "Time out", "Time is up!");
         flag=1;
         QString map ="T";
         droppedPiecesM.append(map);
         if(isPVP)
         {
-            if(nextPlayer!=PVPColor )
+            if(nextPlayer!=2-PVPColor )
             {
                 emit send(NetworkData(OPCODE::TIMEOUT_END_OP,name,"goodgame"));
                 sended=true;
             }
         }
+        QMessageBox::information(this, "Time out", "Time is up!");
           if (nextPlayer == WHITE_PLAYER)
           {
               gameOver(WHITE_PLAYER);
@@ -349,8 +577,9 @@ void BoardWidget::onChangeTimeButtonClicked()//更改时间，点击后可输入
 
 void BoardWidget::onGiveUpButtonClicked()
 {
-
-    if(flag!=1&&(isPVP==0||(nextPlayer&&PVPColor==1)||(!nextPlayer&&PVPColor==2)))
+     if(flag==0)
+     if(isPVP==0||(nextPlayer&&PVPColor==1)||(!nextPlayer&&PVPColor==2))
+     if(isGameWithAi==0||!isAITurn[nextPlayer])
     {
         QString map ="G";
         droppedPiecesM.append(map);
@@ -386,7 +615,9 @@ void BoardWidget::downPiece(int x, int y)
             if (capturesOpponent(x, y))
             {
                 // 当落子一方吃掉对方棋子时，判断其为负方
-                QMessageBox::warning(this, tr("警告"), tr("吃子会判负！"));
+
+                if(!isGameWithAi) QMessageBox::warning(this, tr("警告"), tr("吃子会判负！"));
+                 flag2=1;
                 board[x][y] = NO_PIECE;  // 清除棋子
                     update();
                     return;
@@ -395,19 +626,22 @@ void BoardWidget::downPiece(int x, int y)
 
             else
             {
+                update();
+                flag2=0;
                 QString map = QString(QChar('A' + y)) + QString::number(x + 1);
                 dropedPieces.push(QPoint(x, y));
                 droppedPiecesM.append(map);
                 update();
-                switchNextPlayer();
-                if(isPVP==1)
+                isplayerturn=1-isplayerturn;
+                if(isPVP==1&&nextPlayer==2-PVPColor)
                 {
                     //qDebug() << "into emit sent";
                     QString time = QString::number(QDateTime::currentMSecsSinceEpoch());
                     NetworkData data=NetworkData(OPCODE::MOVE_OP,map,time);
                     emit send(data);
                 }
-                remainingTime=SET_TIME-elapsed; // 更新时间
+                switchNextPlayer();
+                remainingTime=SET_TIME; // 更新时间
                 timer->start();
                 update();
             }
@@ -415,14 +649,14 @@ void BoardWidget::downPiece(int x, int y)
         else
         {
             // 落子导致己方棋子没气，判负
-            QMessageBox::warning(this, tr("警告"), tr("不允许自杀！"));
+            flag2=1;
+            if(!isGameWithAi) QMessageBox::warning(this, tr("警告"), tr("不允许自杀！"));
             board[x][y] = NO_PIECE;  // 清除棋子
                 update();
                 return;
         }
     }
 }
-// 修改downpiece方法，以便在落子时检查自杀行为和吃子行为。当落子导致吃子时，游戏判定为负方。当落子导致自杀行为时，游戏判定为负方。
 
 bool BoardWidget::isSuicidalMove(int x, int y)//检查落子是否为自杀行为（导致己方棋子没气）
 {
@@ -432,8 +666,9 @@ bool BoardWidget::isSuicidalMove(int x, int y)//检查落子是否为自杀行�
     else return false;
 }
 
-bool BoardWidget::hasLiberties( Board tempBoard,QVector<QVector<bool>> &visited, int x, int y, int color)
+bool BoardWidget::hasLiberties( Board tempBoard,QVector<QVector<bool>> &visited, int x, int y, int color)//是否有气
 {
+    //使用深度优先搜索，没有得出有气的结果就判定为无气
     if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT)
     {
        return false;
@@ -441,6 +676,7 @@ bool BoardWidget::hasLiberties( Board tempBoard,QVector<QVector<bool>> &visited,
     else if(visited[x][y]) return false;
     visited[x][y] = 1;
 
+    //遇到空格子返回有气的结果，整个搜索都会返回真值
     if (tempBoard[x][y] == NO_PIECE)
     {
         initVisited();
@@ -461,6 +697,7 @@ bool BoardWidget::hasLiberties( Board tempBoard,QVector<QVector<bool>> &visited,
 
 bool BoardWidget::capturesOpponent(int x, int y)
 {
+    //本次落子是否导致吃子
     int currentColor = board[x][y];
     int opponentColor = (currentColor == WHITE_PIECE) ? BLACK_PIECE : WHITE_PIECE;
 
@@ -485,25 +722,6 @@ bool BoardWidget::capturesOpponent(int x, int y)
     return captured;
 }
 
-
-void BoardWidget::captureStones(int x, int y)//吃掉对方的棋子
-{
-int capturedColor = board[x][y];
-board[x][y] = NO_PIECE;
-QVector<QPoint> neighbors;
-neighbors << QPoint(x - 1, y) << QPoint(x + 1, y)
-          << QPoint(x, y - 1) << QPoint(x, y + 1);
-
-for (const QPoint &neighbor : neighbors)
-{
-    int nx = neighbor.x();
-    int ny = neighbor.y();
-    if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && board[nx][ny] == capturedColor)
-    {
-        captureStones(nx, ny);
-    }
-}
-}
 void BoardWidget::initVisited()
 {
  for(int i=0;i<15;i++)
@@ -518,6 +736,9 @@ void BoardWidget::gameOver(int loser)//游戏结束，显示输家信息并开�
 {
 timer->stop();
 flag=1;
+copyLast();
+QString filename = "../game_history.txt";
+saveLastHistory(lastHistory, filename);         //存储到本地
 QString loserStr = (loser == WHITE_PLAYER) ? "白方" : "黑方";
 if(loser==WHITE_PLAYER&&flag==0){
     whiteStepCount++;
@@ -554,4 +775,156 @@ void BoardWidget::onShowButtonClicked()
         if (i != droppedPiecesM.size() - 1) record+=" ";
     }
     QMessageBox::information(this, tr("行棋记录"), record);
+}
+void BoardWidget::onShowLastButtonClicked()
+{
+    if (!lastHistory.isEmpty()){
+    QString record;
+    for (int i = 0; i < lastHistory.size(); ++i)
+    {
+        record += lastHistory[i];
+        if (i != lastHistory.size() - 1) record+=" ";
+    }
+    QMessageBox::information(this, tr("上一把记录"), record);
+    }
+}
+void BoardWidget::copyLast()
+{
+    int lastIndex = 0;
+    for (int i = droppedPiecesM.size() - 2; i >= 0; --i)
+    {
+        if (droppedPiecesM[i] == "T" || droppedPiecesM[i] == "G"||i==0)
+        {
+            lastIndex = i;
+            break;
+        }
+    }
+    if(lastIndex ==0) lastIndex--;
+    lastHistory = droppedPiecesM.mid(lastIndex+1);
+}
+void BoardWidget::saveLastHistory(const QVector<QString>& lastHistory, const QString& filename) {
+    QFile file(filename);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text))
+    {
+        QTextStream out(&file);
+        for (const QString& move : lastHistory)
+        {
+            out << move << "\n";
+        }
+        file.close();
+    }
+    else
+    {
+        QMessageBox::warning(this, tr("Error"), tr("Failed to save game history to file."));
+    }
+}
+QVector<QString> BoardWidget::loadLastHistory(const QString& filename)
+{
+    SET_TIME=999;
+    QVector<QString> lastHistory;
+    QFile file(filename);
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&file);
+        while (!in.atEnd()) {
+            QString move = in.readLine();
+            lastHistory.append(move);
+        }
+        file.close();
+    }
+    else
+    {
+        QMessageBox::warning(this, tr("Error"), tr("Failed to load game history from file."));
+    }
+    return lastHistory;
+}
+
+void BoardWidget::showLast()
+{
+    lastHistory=loadLastHistory("../game_history.txt");
+    for(i=0;i<=lastHistory.size()-2;++i)
+    {
+        //判断是否暂停
+        if (isStop)
+            {
+                while (isStop)
+                    QCoreApplication::processEvents();
+            }
+        //每步延时半秒
+        QTime delayTime = QTime::currentTime().addMSecs(500);
+        while (QTime::currentTime() < delayTime)
+            QCoreApplication::processEvents();
+
+        QString move=lastHistory[i];
+        //将行棋记录转化为坐标并调用落子函数downPiece
+        int x = move.mid(1, move.length() - 1).toInt() - 1;
+        int y = move.at(0).toLatin1() - 'A';
+        downPiece(x,y);
+        timer->stop();
+    }
+    if(nextPlayer==true)
+    {
+        if(lastHistory[i]=="G")
+        QMessageBox::warning(this, tr("终局成因"), tr("白方认输"));
+        else
+        QMessageBox::warning(this, tr("终局成因"), tr("白方超时"));
+
+    }
+    else
+    {
+        if(lastHistory[i]=="G")
+        QMessageBox::warning(this, tr("终局成因"), tr("黑方认输"));
+        else
+        QMessageBox::warning(this, tr("终局成因"), tr("黑方超时"));
+    }
+}
+
+void BoardWidget::onStopButtonClicked()
+{
+    isStop=true;
+}
+void BoardWidget::onContinueButtonClicked()
+{
+    toTheStep(i);//回到当前暂停时的状态，抹去玩家自己的尝试
+    isStop=false;
+}
+void BoardWidget::toTheStep(int x)
+{
+    //思路是初始化棋盘，重新播放到第x步，期间不设延迟
+    newGame();
+    SET_TIME=999;
+    for(int i=0;i<x;++i)
+    {
+        QString move=lastHistory[i];
+        int x = move.mid(1, move.length() - 1).toInt() - 1;
+        int y = move.at(0).toLatin1() - 'A';
+        downPiece(x,y);
+        timer->stop();
+    }
+    i=x-1;
+}
+void BoardWidget::onLastButtonClicked()
+{
+    toTheStep(blackStepCount+whiteStepCount-1);
+}
+void BoardWidget::onNextButtonClicked()
+{
+    toTheStep(blackStepCount+whiteStepCount+1);
+}
+void BoardWidget::onJumpButtonClicked()
+{
+    bool yes;
+    int newStep = QInputDialog::getInt(
+        this,
+        "jump to ……",
+        "Enter new step :",
+        SET_TIME,
+        1,
+        9999,
+        1,
+        &yes);
+
+    if (yes)
+    {
+        toTheStep(newStep);
+    }
 }
